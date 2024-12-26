@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>GA vs. Airline Cost &amp; Time Calculator (Customize Plane)</title>
+  <title>GA vs. Airline Cost &amp; Time Calculator (Modal Popup)</title>
   <style>
     body {
       font-family: Arial, sans-serif; 
@@ -28,6 +28,34 @@
     }
     hr {
       margin: 12px 0;
+    }
+
+    /* Simple modal styling */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: rgba(0, 0, 0, 0.5);
+      display: none; /* Hidden by default */
+      justify-content: center;
+      align-items: center;
+      z-index: 9999;
+    }
+    .modal-content {
+      background: #fff;
+      padding: 20px;
+      border-radius: 6px;
+      width: 300px;
+      box-shadow: 0 0 10px rgba(0,0,0,0.25);
+    }
+    .modal-content h3 {
+      margin-top: 0;
+    }
+    .modal-buttons {
+      margin-top: 10px;
+      text-align: right;
+    }
+    .modal-buttons button {
+      margin-left: 6px;
     }
   </style>
 </head>
@@ -66,8 +94,8 @@
       <option value="SR20">Cirrus SR20 G7 ($329/hr, 11 gph, ~155 KTAS)</option>
     </select>
     <br />
-    <button type="button" onclick="customizePlane()">Customize Plane Data</button>
-    <small>(Click to edit rate/speed/fuel burn of selected plane)</small>
+    <button type="button" onclick="openModal()">Customize Plane Data</button>
+    <small>(Open modal to edit rate/speed/fuel burn)</small>
   </div>
 
   <hr>
@@ -130,7 +158,32 @@
   <button onclick="calculateCosts()">Calculate</button>
 </form>
 
+<!-- Results Section -->
 <div id="results" class="result" style="display:none;"></div>
+
+<!-- The Modal Overlay -->
+<div class="modal-overlay" id="planeModal">
+  <div class="modal-content">
+    <h3>Customize Plane Data</h3>
+    <div>
+      <label>Wet Rate ($/hr):</label>
+      <input type="number" id="modalRate" step="1" />
+    </div>
+    <div>
+      <label>Cruise Speed (kt):</label>
+      <input type="number" id="modalSpeed" step="1" />
+    </div>
+    <div>
+      <label>Fuel Burn (gph):</label>
+      <input type="number" id="modalGph" step="0.1" />
+    </div>
+
+    <div class="modal-buttons">
+      <button type="button" onclick="saveModal()">Save</button>
+      <button type="button" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
 
 <script>
   /******************************************************
@@ -150,33 +203,42 @@
   };
 
   /******************************************************
-   * Let the user customize plane data via prompt()
+   * Modal logic
    ******************************************************/
-  function customizePlane() {
+  function openModal() {
     const planeKey = document.getElementById("planeType").value;
     const plane = planes[planeKey];
 
-    const newRate = prompt(`Enter new wet rate ($/hr) for ${planeKey}:`, plane.rate);
-    if (newRate !== null && newRate.trim() !== "") {
-      plane.rate = parseFloat(newRate);
-    }
+    // Populate the modal fields with current plane data
+    document.getElementById("modalRate").value = plane.rate;
+    document.getElementById("modalSpeed").value = plane.speed;
+    document.getElementById("modalGph").value  = plane.gph;
 
-    const newSpeed = prompt(`Enter new cruise speed (knots) for ${planeKey}:`, plane.speed);
-    if (newSpeed !== null && newSpeed.trim() !== "") {
-      plane.speed = parseFloat(newSpeed);
-    }
+    // Show the modal
+    document.getElementById("planeModal").style.display = "flex";
+  }
 
-    const newGph = prompt(`Enter new fuel burn (GPH) for ${planeKey}:`, plane.gph);
-    if (newGph !== null && newGph.trim() !== "") {
-      plane.gph = parseFloat(newGph);
-    }
+  function closeModal() {
+    // Hide the modal
+    document.getElementById("planeModal").style.display = "none";
+  }
 
-    alert(
-      `Updated ${planeKey}:\n` +
-      `• Rate: $${plane.rate.toFixed(2)} /hr\n` +
-      `• Speed: ${plane.speed.toFixed(1)} kt\n` +
-      `• Fuel Burn: ${plane.gph.toFixed(1)} gph`
-    );
+  function saveModal() {
+    const planeKey = document.getElementById("planeType").value;
+    const plane = planes[planeKey];
+
+    // Grab the updated values from the modal fields
+    const newRate  = parseFloat(document.getElementById("modalRate").value);
+    const newSpeed = parseFloat(document.getElementById("modalSpeed").value);
+    const newGph   = parseFloat(document.getElementById("modalGph").value);
+
+    // Update the plane data
+    plane.rate  = (isNaN(newRate))  ? plane.rate  : newRate;
+    plane.speed = (isNaN(newSpeed)) ? plane.speed : newSpeed;
+    plane.gph   = (isNaN(newGph))   ? plane.gph   : newGph;
+
+    // Hide the modal
+    closeModal();
   }
 
   /*****************************************************
@@ -233,8 +295,8 @@
 
     // 3. Lookup plane data
     const plane  = planes[selectedPlane];
-    const rate   = plane.rate;    
-    const speed  = plane.speed;   
+    const rate   = plane.rate;
+    const speed  = plane.speed;
     const gph    = plane.gph;
 
     // 4. GA flight time for round trip (ignoring stops at first)
