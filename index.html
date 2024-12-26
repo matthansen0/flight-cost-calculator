@@ -2,16 +2,16 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>GA vs. Airline Cost &amp; Time Calculator (All Features + Stopover)</title>
+  <title>GA vs. Airline Cost &amp; Time Calculator (Custom Rental Logic)</title>
   <style>
     body {
       font-family: Arial, sans-serif; 
       margin: 20px;
-      max-width: 800px;
+      max-width: 700px;
     }
     label {
       display: inline-block;
-      width: 220px;
+      width: 210px;
       margin-bottom: 6px;
     }
     input, select, button {
@@ -58,10 +58,10 @@
 </head>
 <body>
 
-<h1>GA vs. Airline Cost &amp; Time Calculator (All-In-One)</h1>
+<h1>GA vs. Airline Cost &amp; Time Calculator</h1>
 
 <form id="costForm" onsubmit="return false;">
-  <!-- 1. Passengers & Airfare -->
+  <!-- 1. Number of Passengers & Airfare -->
   <div>
     <label for="numPassengers"># of Passengers:</label>
     <input type="number" id="numPassengers" value="2" min="1" />
@@ -73,25 +73,17 @@
 
   <hr>
 
-  <!-- 2. Distance, Base Reservation, and Stopover -->
+  <!-- 2. Distance & Reservation Hours -->
   <div>
     <label for="distance">Distance One-Way (NM):</label>
     <input type="number" id="distance" value="300" min="0" />
   </div>
   <div>
-    <label for="baseReservationHrs">Base Reservation (hrs):</label>
-    <input type="number" id="baseReservationHrs" value="6" step="0.1" min="0" />
-    <small>(planned away-from-FBO time before adding stopover)</small>
-  </div>
-  <div>
-    <label for="stopoverHrs">Stopover at Destination (hrs):</label>
-    <input type="number" id="stopoverHrs" value="4" step="0.1" min="0" />
-    <small>(adds to total reservation length)</small>
+    <label for="reservationHrs">Reservation Length (hrs):</label>
+    <input type="number" id="reservationHrs" value="24" min="0" />
+    <small>(for minimum Hobbs)</small>
   </div>
 
-  <hr>
-
-  <!-- 3. Aircraft Type + Buttons -->
   <div>
     <label for="planeType">Aircraft Type:</label>
     <select id="planeType">
@@ -107,7 +99,7 @@
 
   <hr>
 
-  <!-- 4. Fuel & Fuel Stops -->
+  <!-- 3. Fuel & Fuel Stops -->
   <div>
     <label for="usableFuel">Usable Fuel Onboard (gal):</label>
     <input type="number" id="usableFuel" value="40" min="0" />
@@ -126,7 +118,7 @@
 
   <hr>
 
-  <!-- 5. FBO Fees -->
+  <!-- 4. FBO Fees -->
   <div>
     <label for="fboFeePerFuelStop">Fuel Stop FBO Fee ($/stop):</label>
     <input type="number" id="fboFeePerFuelStop" value="0" step="1" min="0" />
@@ -139,7 +131,7 @@
 
   <hr>
 
-  <!-- 6. GA Overhead Time -->
+  <!-- 5. GA Overhead Time -->
   <div>
     <label for="gaOverhead">GA Overhead (hrs):</label>
     <input type="number" id="gaOverhead" value="1" step="0.1" min="0" />
@@ -148,7 +140,7 @@
 
   <hr>
 
-  <!-- 7. Airline Time Inputs -->
+  <!-- 6. Airline Time Inputs -->
   <div>
     <label for="airlineFlightTime">Airline Flight Time (hrs):</label>
     <input type="number" id="airlineFlightTime" value="4" step="0.1" min="0" />
@@ -167,9 +159,8 @@
 
 <div id="results" class="result" style="display:none;"></div>
 
-<!-- ========== MODALS for customizing planes, adding planes, and editing min Hobbs ========== -->
 
-<!-- 1) Modal: Customize Existing Plane -->
+<!-- MODAL for customizing existing plane -->
 <div class="modal-overlay" id="planeModal">
   <div class="modal-content">
     <h3>Customize Existing Plane</h3>
@@ -192,7 +183,7 @@
   </div>
 </div>
 
-<!-- 2) Modal: Add a New Plane -->
+<!-- MODAL for adding a new plane -->
 <div class="modal-overlay" id="addPlaneModal">
   <div class="modal-content">
     <h3>Add New Airplane</h3>
@@ -219,11 +210,12 @@
   </div>
 </div>
 
-<!-- 3) Modal: Edit Min Hobbs Logic -->
+<!-- MODAL for customizing Min Hobbs Logic -->
 <div class="modal-overlay" id="minHobbsModal">
   <div class="modal-content">
     <h3>Edit Min Hobbs Logic</h3>
-    <p>Adjust how many hours must be billed for long or overnight rentals:</p>
+    <p>Define how many hours must be billed for longer rentals:</p>
+
     <div>
       <label>Block Size (hrs):</label>
       <input type="number" id="modalBlockSize" step="0.1" value="6" />
@@ -236,9 +228,16 @@
       <label>Additional Hours per block:</label>
       <input type="number" id="modalExtraPerBlock" step="0.1" value="1" />
     </div>
+
     <small>
-      Example: 6–12 hrs => min 2, 12–18 => min 3, etc.
+      Example: If Block Size=6, Base Min Hours=2, Extra=1 =>  
+      - 0–6 hrs => 0;  
+      - 6–12 => 2 hrs;  
+      - 12–18 => 3 hrs;  
+      - 18–24 => 4 hrs;  
+      etc.
     </small>
+
     <div class="modal-buttons">
       <button type="button" onclick="saveMinHobbs()">Save</button>
       <button type="button" onclick="closeMinHobbsModal()">Cancel</button>
@@ -248,24 +247,28 @@
 
 <script>
   /******************************************************
-   * 1) Global data structures
+   * 1) Built-in plane data
    ******************************************************/
-  // Built-in planes:
   const planes = {
     "DA40": { rate: 219, speed: 140, gph: 9.5 },
     "SR20": { rate: 329, speed: 155, gph: 11 }
   };
 
-  // 3 gallons used per additional takeoff/climb
+  /******************************************************
+   * 2) We also incorporate 3 gallons per fuel stop
+   ******************************************************/
   const CLIMB_GALS_PER_STOP = 3;
 
-  // Minimum Hobbs logic: user-editable
+  /******************************************************
+   * 3) Long-Rental / Overnight logic variables
+   *    (User-editable in a modal)
+   ******************************************************/
   let blockSize       = 6.0;  // e.g. 6 hours
-  let baseMinHours    = 2.0;  // after the first block
-  let extraHoursBlock = 1.0;  // each additional block adds +1 hr
+  let baseMinHours    = 2.0;  // e.g. 2 hr min after 6–12
+  let extraHoursBlock = 1.0;  // e.g. +1 hr each additional block
 
   /******************************************************
-   * 2) Modal logic: Customize Existing Plane
+   * 4) Modal logic for customizing existing plane
    ******************************************************/
   function openCustomizeModal() {
     const planeKey = document.getElementById("planeType").value;
@@ -298,7 +301,7 @@
   }
 
   /******************************************************
-   * 3) Modal logic: Add a New Plane
+   * Modal logic for adding a new plane
    ******************************************************/
   function openAddPlaneModal() {
     document.getElementById("modalNewName").value  = "";
@@ -329,7 +332,7 @@
     // Add or update plane
     planes[newName] = { rate: newRate, speed: newSpeed, gph: newGph };
 
-    // Add to <select> if not present
+    // Add to select if not existing
     const planeSel = document.getElementById("planeType");
     let existingOpt = [...planeSel.options].find(opt => opt.value === newName);
     if (!existingOpt) {
@@ -338,18 +341,20 @@
       newOpt.text  = newName;
       planeSel.appendChild(newOpt);
     }
-    planeSel.value = newName;
 
+    planeSel.value = newName;
     closeAddPlaneModal();
   }
 
   /******************************************************
-   * 4) Modal logic: Edit Min Hobbs Logic
+   * 5) Modal logic for editing the min Hobbs logic
    ******************************************************/
   function openMinHobbsModal() {
+    // Populate fields with current global values
     document.getElementById("modalBlockSize").value       = blockSize;
     document.getElementById("modalBaseMin").value         = baseMinHours;
     document.getElementById("modalExtraPerBlock").value   = extraHoursBlock;
+
     document.getElementById("minHobbsModal").style.display = "flex";
   }
   function closeMinHobbsModal() {
@@ -368,14 +373,14 @@
   }
 
   /******************************************************
-   * 5) Min Hobbs Calculation using block-based approach
+   * 6) Compute min Hobbs hours using user-defined logic
    ******************************************************/
   function getMinHobbsHours(totalHours) {
-    // If totalHours <= blockSize => 0 hrs min
+    // e.g. if totalHours <= blockSize => 0
     if (totalHours <= blockSize) return 0;
 
     let hrsRemaining = totalHours - blockSize;
-    let minHours = baseMinHours; // after crossing first block
+    let minHours = baseMinHours;  // after first block
     while (hrsRemaining > blockSize) {
       hrsRemaining -= blockSize;
       minHours += extraHoursBlock; 
@@ -384,7 +389,7 @@
   }
 
   /******************************************************
-   * 6) Fuel stops ignoring climb usage
+   * 7) # of stops ignoring climb usage
    ******************************************************/
   function getFuelStopsNeeded(totalFlightTime, flightEndurance) {
     if (totalFlightTime <= flightEndurance) {
@@ -395,20 +400,17 @@
   }
 
   /******************************************************
-   * 7) Main "Calculate" function
+   * 8) Main "Calculate" function
+   *    Iterative approach for 3 gal/stop
    ******************************************************/
   function calculateCosts() {
-    // 1) Gather user inputs
+    // Grab user inputs
     const numPassengers     = parseFloat(document.getElementById("numPassengers").value) || 0;
     const airfarePerPerson  = parseFloat(document.getElementById("airfare").value)       || 0;
     const distanceNM        = parseFloat(document.getElementById("distance").value)      || 0;
-
-    // Base reservation plus stopover
-    const baseResHrs        = parseFloat(document.getElementById("baseReservationHrs").value) || 0;
-    const stopoverHrs       = parseFloat(document.getElementById("stopoverHrs").value)        || 0;
-    const finalReservationHrs = baseResHrs + stopoverHrs; // total away-from-FBO time
-
+    const reservationHrs    = parseFloat(document.getElementById("reservationHrs").value)|| 0;
     const selectedPlane     = document.getElementById("planeType").value;
+
     const usableFuel        = parseFloat(document.getElementById("usableFuel").value)    || 0;
     const fuelStopTime      = parseFloat(document.getElementById("fuelStopTime").value)  || 0;
     const extraHobbsPerStop = parseFloat(document.getElementById("extraHobbsPerStop").value) || 0;
@@ -418,24 +420,26 @@
     const airlineFlightTime = parseFloat(document.getElementById("airlineFlightTime").value) || 0;
     const airlineOverhead   = parseFloat(document.getElementById("airlineOverhead").value)   || 0;
 
-    // 2) Airline cost
+    // Airline cost
     const totalAirlineCost = numPassengers * airfarePerPerson;
 
-    // 3) Plane data
+    // Lookup plane data
     const plane = planes[selectedPlane];
     if (!plane) {
-      alert("Please select a valid airplane.");
+      alert("Please select or add a valid airplane.");
       return;
     }
     const rate = plane.rate;
     const speed = plane.speed;
     const gph = plane.gph;
 
-    // 4) GA flight time (round-trip ignoring stops)
+    // Round-trip flight time (no stops)
     const rawGaFlightTime = 2 * (distanceNM / speed);
 
-    // 5) Factor in 3 gal/stop with an iterative approach
-    const reserveGallons = gph * 1; // 1-hr reserve
+    // Start with 1-hr reserve
+    const reserveGallons = gph * 1;  
+
+    // Iterative approach to factor 3 gal used per stop
     let bestGuessStops = 0;
     let prevStops = -1;
     let iteration = 0;
@@ -444,70 +448,69 @@
     while (bestGuessStops !== prevStops && iteration < MAX_ITER) {
       iteration++;
       prevStops = bestGuessStops;
-
       const totalClimbGals = CLIMB_GALS_PER_STOP * bestGuessStops;
       const effectiveUsable = Math.max(0, usableFuel - reserveGallons - totalClimbGals);
       const flightEndurance = effectiveUsable / gph;
 
       bestGuessStops = getFuelStopsNeeded(rawGaFlightTime, flightEndurance);
     }
-    const fuelStops = bestGuessStops;
 
-    // final calculations
+    const fuelStops = bestGuessStops;
+    // Final flightEndurance
     const finalClimbGals = CLIMB_GALS_PER_STOP * fuelStops;
     const finalUsable = Math.max(0, usableFuel - reserveGallons - finalClimbGals);
     const finalFlightEndurance = finalUsable / gph;
 
-    // 6) Billable flight time
-    const billableFlightTime = rawGaFlightTime + (fuelStops * extraHobbsPerStop);
+    // Billable flight time
+    let billableFlightTime = rawGaFlightTime + (fuelStops * extraHobbsPerStop);
 
-    // 7) Compare to Min Hobbs
-    const minHobbs = getMinHobbsHours(finalReservationHrs);
+    // Min Hobbs check
+    const minHobbs = getMinHobbsHours(reservationHrs);
     const billableHours = Math.max(billableFlightTime, minHobbs);
 
-    // 8) GA cost
+    // GA cost
     let gaCost = billableHours * rate;
     const totalFboFees = (fuelStops * fboFeePerFuelStop) + fboFeeDestination;
     gaCost += totalFboFees;
 
-    // 9) GA door-to-door time
+    // GA travel time
     const actualGaTravelTime = rawGaFlightTime + (fuelStops * fuelStopTime) + gaOverhead;
 
-    // 10) Airline door-to-door time
+    // Airline travel time
     const totalAirlineTime = airlineFlightTime + airlineOverhead;
 
-    /**************************************************************
-     * 11) Build the output
-     **************************************************************/
+    // Output
     let html = "<h2>Results</h2>";
 
-    // COST
-    html += `<p><strong>Airline Cost:</strong> $${totalAirlineCost.toFixed(0)}</p>`;
-    html += `<p><strong>GA Cost (${selectedPlane}):</strong> $${gaCost.toFixed(0)}</p>`;
-
+    // Cost comparison
+    html += "<p><strong>Airline Cost:</strong> $" + totalAirlineCost.toFixed(0) + "</p>";
+    html += "<p><strong>GA Cost (" + selectedPlane + "):</strong> $" + gaCost.toFixed(0) + "</p>";
     if (gaCost < totalAirlineCost) {
-      html += "<p>You <span>save money</span> flying GA (in pure dollar terms).</p>";
+      html += "<p>You <span>save money</span> flying yourself (in pure dollar terms).</p>";
     } else if (gaCost > totalAirlineCost) {
-      html += "<p>The <span>airline is cheaper</span> in pure dollar terms.</p>";
+      html += "<p>The <span>airline is cheaper</span> than GA in pure dollar terms.</p>";
     } else {
-      html += "<p>It's basically a <span>tie</span> in pure cost!</p>";
+      html += "<p>It's basically a <span>tie</span> in pure cost.</p>";
     }
 
     html += "<hr>";
 
-    // TIME
-    html += `<p><strong>GA Travel Time (total):</strong> ${actualGaTravelTime.toFixed(1)} hrs</p>`;
+    // Time comparison
+    html += "<p><strong>GA Travel Time (total):</strong> " 
+          + actualGaTravelTime.toFixed(1) + " hrs</p>";
     html += "<ul>";
-    html += `<li><strong>Raw flight time:</strong> ${rawGaFlightTime.toFixed(2)} hrs</li>`;
-    html += `<li><strong>Fuel stops:</strong> ${fuelStops}</li>`;
-    html += `<li><strong>Fuel stop overhead:</strong> ${(fuelStops * fuelStopTime).toFixed(1)} hrs total</li>`;
-    html += `<li><strong>GA overhead:</strong> ${gaOverhead.toFixed(1)} hrs</li>`;
+    html += "<li><strong>Raw flight time:</strong> " + rawGaFlightTime.toFixed(2) + " hrs</li>";
+    html += "<li><strong>Fuel stops:</strong> " + fuelStops + "</li>";
+    html += "<li><strong>Fuel stop overhead:</strong> " + (fuelStops * fuelStopTime).toFixed(1) 
+             + " hrs total (" + fuelStopTime + " hrs each)</li>";
+    html += "<li><strong>GA overhead:</strong> " + gaOverhead.toFixed(1) + " hrs</li>";
     html += "</ul>";
 
-    html += `<p><strong>Airline Travel Time (total):</strong> ${totalAirlineTime.toFixed(1)} hrs</p>`;
+    html += "<p><strong>Airline Travel Time (total):</strong> " 
+          + totalAirlineTime.toFixed(1) + " hrs</p>";
     html += "<ul>";
-    html += `<li><strong>In-flight:</strong> ${airlineFlightTime.toFixed(2)} hrs</li>`;
-    html += `<li><strong>Overhead (security, check-in):</strong> ${airlineOverhead.toFixed(1)} hrs</li>`;
+    html += "<li><strong>In-flight:</strong> " + airlineFlightTime.toFixed(2) + " hrs</li>";
+    html += "<li><strong>Overhead (security, check-in):</strong> " + airlineOverhead.toFixed(1) + " hrs</li>";
     html += "</ul>";
 
     if (actualGaTravelTime < totalAirlineTime) {
@@ -515,19 +518,22 @@
     } else if (actualGaTravelTime > totalAirlineTime) {
       html += "<p>The airline is <span>faster</span> overall.</p>";
     } else {
-      html += "<p>They're <span>equal</span> in total time!</p>";
+      html += "<p>They're <span>equal</span> in total time.</p>";
     }
 
     html += "<hr>";
 
-    // Additional details
-    html += `<p><strong>Billable Flight Time (with stops):</strong> ${billableFlightTime.toFixed(2)} hrs</p>`;
-    html += `<p><strong>(Base Reservation + Stopover):</strong> ${finalReservationHrs.toFixed(2)} hrs total</p>`;
-    html += `<p><strong>Minimum Hobbs Required:</strong> ${minHobbs.toFixed(2)} hrs</p>`;
-    html += `<p><strong>Final Billable GA Hours:</strong> ${billableHours.toFixed(2)}</p>`;
-    html += `<p><strong>Flight Endurance (excl. 1hr reserve & climb usage):</strong> ${finalFlightEndurance.toFixed(2)} hrs</p>`;
-    html += `<p><strong>FBO Fees:</strong> $${totalFboFees.toFixed(0)} total</p>`;
-    html += `<p><em>*3 gal/stop used for T/O+run-up is iteratively factored in.</em></p>`;
+    // Additional Hobbs details
+    html += "<p><strong>Billable Flight Time (with stops):</strong> " 
+          + billableFlightTime.toFixed(2) + " hrs</p>";
+    html += "<p><strong>Minimum Hobbs Required:</strong> " 
+          + minHobbs.toFixed(2) + " hrs</p>";
+    html += "<p><strong>Final Billable GA Hours:</strong> " 
+          + billableHours.toFixed(2) + "</p>";
+    html += "<p><strong>Flight Endurance (excl. 1hr reserve & climb usage):</strong> " 
+          + finalFlightEndurance.toFixed(2) + " hrs</p>";
+    html += "<p><strong>FBO Fees:</strong> $" + totalFboFees.toFixed(0) + " total</p>";
+    html += "<p><em>*3 gal/stop used for taxi + run-up + climb factored in iteratively.</em></p>";
     html += `<p><em>*Min Hobbs logic: blockSize=${blockSize}, baseMin=${baseMinHours}, extra/block=${extraHoursBlock}</em></p>`;
 
     const resultsDiv = document.getElementById("results");
