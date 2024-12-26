@@ -1,0 +1,304 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>GA vs. Airline Cost &amp; Time Calculator (with FBO Fees)</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif; 
+      margin: 20px;
+      max-width: 700px;
+    }
+    label {
+      display: inline-block;
+      width: 210px;
+      margin-bottom: 6px;
+    }
+    input, select {
+      margin-bottom: 6px;
+    }
+    .result {
+      margin-top: 15px;
+      padding: 10px;
+      border: 1px solid #ccc;
+      background: #f9f9f9;
+    }
+    .result span {
+      font-weight: bold;
+    }
+    hr {
+      margin: 12px 0;
+    }
+  </style>
+</head>
+<body>
+
+<h1>GA vs. Airline Cost &amp; Time Calculator</h1>
+
+<form id="costForm" onsubmit="return false;">
+
+  <!-- 1. Number of Passengers & Airfare -->
+  <div>
+    <label for="numPassengers"># of Passengers:</label>
+    <input type="number" id="numPassengers" value="2" min="1" />
+  </div>
+  <div>
+    <label for="airfare">Airfare per Person ($):</label>
+    <input type="number" id="airfare" value="300" min="0" />
+  </div>
+
+  <hr>
+
+  <!-- 2. Distance & Reservation Hours -->
+  <div>
+    <label for="distance">Distance One-Way (NM):</label>
+    <input type="number" id="distance" value="300" min="0" />
+  </div>
+  <div>
+    <label for="reservationHrs">Reservation Length (hrs):</label>
+    <input type="number" id="reservationHrs" value="24" min="0" />
+    <small>(for minimum Hobbs)</small>
+  </div>
+  <div>
+    <label for="planeType">Aircraft Type:</label>
+    <select id="planeType">
+      <option value="DA40">DA40 XLS ($219/hr, 9.5 gph, ~140 KTAS)</option>
+      <option value="SR20">Cirrus SR20 G7 ($329/hr, 11 gph, ~155 KTAS)</option>
+    </select>
+  </div>
+
+  <hr>
+
+  <!-- 3. Fuel & Fuel Stops -->
+  <div>
+    <label for="usableFuel">Usable Fuel Onboard (gal):</label>
+    <input type="number" id="usableFuel" value="40" min="0" />
+    <small>(after W&amp;B)</small>
+  </div>
+  <div>
+    <label for="fuelStopTime">Fuel Stop Overhead (hrs):</label>
+    <input type="number" id="fuelStopTime" value="0.5" step="0.1" min="0" />
+    <small>(time on ground per stop)</small>
+  </div>
+  <div>
+    <label for="extraHobbsPerStop">Extra Hobbs per Fuel Stop (hrs):</label>
+    <input type="number" id="extraHobbsPerStop" value="0.5" step="0.1" min="0" />
+    <small>(run-up, T/O, climb)</small>
+  </div>
+  
+  <hr>
+
+  <!-- 4. FBO Fees -->
+  <div>
+    <label for="fboFeePerFuelStop">Fuel Stop FBO Fee ($/stop):</label>
+    <input type="number" id="fboFeePerFuelStop" value="0" step="1" min="0" />
+  </div>
+  <div>
+    <label for="fboFeeDestination">Destination FBO Fee ($):</label>
+    <input type="number" id="fboFeeDestination" value="0" step="1" min="0" />
+    <small>(overnight, ramp, handling, etc.)</small>
+  </div>
+
+  <hr>
+
+  <!-- 5. GA Overhead Time -->
+  <div>
+    <label for="gaOverhead">GA Overhead (hrs):</label>
+    <input type="number" id="gaOverhead" value="1" step="0.1" min="0" />
+    <small>(preflight, postflight, etc.)</small>
+  </div>
+
+  <hr>
+
+  <!-- 6. Airline Time Inputs -->
+  <div>
+    <label for="airlineFlightTime">Airline Flight Time (hrs):</label>
+    <input type="number" id="airlineFlightTime" value="4" step="0.1" min="0" />
+    <small>(total in-flight)</small>
+  </div>
+  <div>
+    <label for="airlineOverhead">Airline Overhead (hrs):</label>
+    <input type="number" id="airlineOverhead" value="3" step="0.1" min="0" />
+    <small>(security, check-in, etc.)</small>
+  </div>
+
+  <hr>
+
+  <button onclick="calculateCosts()">Calculate</button>
+</form>
+
+<div id="results" class="result" style="display:none;"></div>
+
+<script>
+  /******************************************************
+   *  Plane data: wet rate, speed, gph (approx)         *
+   ******************************************************/
+  const planes = {
+    "DA40": {
+      rate: 219,     // $/hr (wet)
+      speed: 140,    // kt (TAS)
+      gph: 9.5       // gal/hr
+    },
+    "SR20": {
+      rate: 329,     // $/hr (wet)
+      speed: 155,    // kt
+      gph: 11        // gal/hr
+    }
+  };
+
+  /*****************************************************
+   * Compute the MINIMUM Hobbs hours based on block time
+   * 0-6 hrs  -> 0
+   * 6-12 hrs -> 2
+   * 12-18 hrs-> 3
+   * 18-24 hrs-> 4
+   * 24-30 hrs-> 5, etc.
+   *****************************************************/
+  function getMinHobbsHours(totalHours) {
+    if (totalHours <= 6) return 0;
+    let hrsRemaining = totalHours - 6;
+    let minHours = 2; // base after first 6 hours
+    while (hrsRemaining > 6) {
+      hrsRemaining -= 6;
+      minHours++;
+    }
+    return minHours;
+  }
+
+  /*****************************************************
+   * # of fuel stops needed for round trip if
+   * total flight time > flightEndurance.
+   *  stops = ceil(total flight time / endurance) - 1
+   *****************************************************/
+  function getFuelStopsNeeded(roundTripFlightTime, flightEndurance) {
+    if (roundTripFlightTime <= flightEndurance) {
+      return 0;
+    }
+    const ratio = roundTripFlightTime / flightEndurance;
+    return Math.ceil(ratio) - 1;
+  }
+
+  function calculateCosts() {
+    /* 1. Grab user inputs */
+    const numPassengers       = parseFloat(document.getElementById("numPassengers").value) || 0;
+    const airfarePerPerson    = parseFloat(document.getElementById("airfare").value)       || 0;
+    const distanceNM          = parseFloat(document.getElementById("distance").value)      || 0;
+    const reservationHrs      = parseFloat(document.getElementById("reservationHrs").value)|| 0;
+    const selectedPlane       = document.getElementById("planeType").value;
+    const usableFuel          = parseFloat(document.getElementById("usableFuel").value)    || 0;
+    const fuelStopTime        = parseFloat(document.getElementById("fuelStopTime").value)  || 0;
+    const extraHobbsPerStop   = parseFloat(document.getElementById("extraHobbsPerStop").value) || 0;
+    const fboFeePerFuelStop   = parseFloat(document.getElementById("fboFeePerFuelStop").value) || 0;
+    const fboFeeDestination   = parseFloat(document.getElementById("fboFeeDestination").value) || 0;
+    const gaOverhead          = parseFloat(document.getElementById("gaOverhead").value)    || 0;
+    const airlineFlightTime   = parseFloat(document.getElementById("airlineFlightTime").value) || 0;
+    const airlineOverhead     = parseFloat(document.getElementById("airlineOverhead").value)   || 0;
+
+    // 2. Total airline cost
+    const totalAirlineCost = numPassengers * airfarePerPerson;
+
+    // 3. Lookup plane data
+    const plane  = planes[selectedPlane];
+    const rate   = plane.rate;    // $/hr
+    const speed  = plane.speed;   // knots
+    const gph    = plane.gph;
+
+    // 4. GA flight time for round trip (ignoring stops at first)
+    const rawGaFlightTime = 2 * (distanceNM / speed);
+
+    // 5. Subtract 1 hr fuel reserve from total usableFuel
+    const fuelReserve = gph * 1;  // 1 hr of reserve
+    const usableForFlight = Math.max(0, usableFuel - fuelReserve);
+    const flightEndurance = usableForFlight / gph;
+
+    // 6. Fuel stops needed
+    const fuelStops = getFuelStopsNeeded(rawGaFlightTime, flightEndurance);
+
+    // 7. Billable flight time includes extra 0.5 hrs (default) per fuel stop
+    let billableFlightTime = rawGaFlightTime + (fuelStops * extraHobbsPerStop);
+
+    // 8. Minimum Hobbs check
+    const minHobbs = getMinHobbsHours(reservationHrs);
+    const billableHours = Math.max(billableFlightTime, minHobbs);
+
+    // 9. Base GA cost from flight hours
+    let gaCost = billableHours * rate;
+
+    // 10. Add FBO fees
+    //     - Fuel stop fees * number of fuel stops
+    //     - Destination FBO fee (once)
+    const totalFboFees = (fuelStops * fboFeePerFuelStop) + fboFeeDestination;
+    gaCost += totalFboFees;
+
+    // 11. GA total travel time
+    const actualGaTravelTime = rawGaFlightTime
+                              + (fuelStops * fuelStopTime)
+                              + gaOverhead;
+
+    // 12. Airline total travel time
+    const totalAirlineTime = airlineFlightTime + airlineOverhead;
+
+    /**************************************************************
+     * Prepare the results
+     **************************************************************/
+    let html = "<h2>Results</h2>";
+
+    // COST
+    html += "<p><strong>Airline Cost:</strong> $" + totalAirlineCost.toFixed(0) + "</p>";
+    html += "<p><strong>GA Cost (" + selectedPlane + "):</strong> $" + gaCost.toFixed(0) + "</p>";
+
+    if (gaCost < totalAirlineCost) {
+      html += "<p>You <span>save money</span> by flying yourself (in pure dollar terms).</p>";
+    } else if (gaCost > totalAirlineCost) {
+      html += "<p>The <span>airline is cheaper</span> than GA in pure dollar terms.</p>";
+    } else {
+      html += "<p>It's basically a <span>tie</span> in pure cost!</p>";
+    }
+
+    html += "<hr>";
+
+    // TIME
+    html += "<p><strong>GA Travel Time (total):</strong> " 
+          + actualGaTravelTime.toFixed(1) + " hrs</p>";
+    html += "<ul>";
+    html += "<li><strong>Raw flight time:</strong> " + rawGaFlightTime.toFixed(2) + " hrs</li>";
+    html += "<li><strong>Fuel stops:</strong> " + fuelStops + "</li>";
+    html += "<li><strong>Fuel stop overhead:</strong> " + (fuelStops * fuelStopTime).toFixed(1) 
+             + " hrs total (" + fuelStopTime + " hrs each)</li>";
+    html += "<li><strong>GA overhead:</strong> " + gaOverhead.toFixed(1) + " hrs</li>";
+    html += "</ul>";
+
+    html += "<p><strong>Airline Travel Time (total):</strong> " 
+          + totalAirlineTime.toFixed(1) + " hrs</p>";
+    html += "<ul>";
+    html += "<li><strong>In-flight:</strong> " + airlineFlightTime.toFixed(2) + " hrs</li>";
+    html += "<li><strong>Overhead (security, check-in):</strong> " + airlineOverhead.toFixed(1) + " hrs</li>";
+    html += "</ul>";
+
+    if (actualGaTravelTime < totalAirlineTime) {
+      html += "<p>You <span>save time</span> flying GA!</p>";
+    } else if (actualGaTravelTime > totalAirlineTime) {
+      html += "<p>The airline is <span>faster</span> overall.</p>";
+    } else {
+      html += "<p>They're <span>equal</span> in total time!</p>";
+    }
+
+    html += "<hr>";
+
+    // Additional Hobbs details
+    html += "<p><strong>Billable Flight Time (with stops):</strong> " 
+          + billableFlightTime.toFixed(2) + " hrs</p>";
+    html += "<p><strong>Minimum Hobbs Required:</strong> " + minHobbs.toFixed(2) + " hrs</p>";
+    html += "<p><strong>Final Billable GA Hours:</strong> " + billableHours.toFixed(2) + "</p>";
+    html += "<p><strong>Flight Endurance (excluding 1hr reserve):</strong> " 
+          + flightEndurance.toFixed(2) + " hrs</p>";
+    html += "<p><strong>FBO Fees:</strong> $" + totalFboFees.toFixed(0) + " total</p>";
+
+    const resultsDiv = document.getElementById("results");
+    resultsDiv.innerHTML = html;
+    resultsDiv.style.display = "block";
+  }
+</script>
+
+</body>
+</html>
