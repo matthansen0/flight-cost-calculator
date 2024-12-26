@@ -2,7 +2,7 @@
 <html>
 <head>
   <meta charset="UTF-8" />
-  <title>GA vs. Airline Cost &amp; Time Calculator (with FBO Fees)</title>
+  <title>GA vs. Airline Cost &amp; Time Calculator (Customize Plane)</title>
   <style>
     body {
       font-family: Arial, sans-serif; 
@@ -14,7 +14,7 @@
       width: 210px;
       margin-bottom: 6px;
     }
-    input, select {
+    input, select, button {
       margin-bottom: 6px;
     }
     .result {
@@ -65,6 +65,9 @@
       <option value="DA40">DA40 XLS ($219/hr, 9.5 gph, ~140 KTAS)</option>
       <option value="SR20">Cirrus SR20 G7 ($329/hr, 11 gph, ~155 KTAS)</option>
     </select>
+    <br />
+    <button type="button" onclick="customizePlane()">Customize Plane Data</button>
+    <small>(Click to edit rate/speed/fuel burn of selected plane)</small>
   </div>
 
   <hr>
@@ -131,7 +134,7 @@
 
 <script>
   /******************************************************
-   *  Plane data: wet rate, speed, gph (approx)         *
+   *  Plane data: wet rate, speed (kts), gph (approx)
    ******************************************************/
   const planes = {
     "DA40": {
@@ -145,6 +148,36 @@
       gph: 11        // gal/hr
     }
   };
+
+  /******************************************************
+   * Let the user customize plane data via prompt()
+   ******************************************************/
+  function customizePlane() {
+    const planeKey = document.getElementById("planeType").value;
+    const plane = planes[planeKey];
+
+    const newRate = prompt(`Enter new wet rate ($/hr) for ${planeKey}:`, plane.rate);
+    if (newRate !== null && newRate.trim() !== "") {
+      plane.rate = parseFloat(newRate);
+    }
+
+    const newSpeed = prompt(`Enter new cruise speed (knots) for ${planeKey}:`, plane.speed);
+    if (newSpeed !== null && newSpeed.trim() !== "") {
+      plane.speed = parseFloat(newSpeed);
+    }
+
+    const newGph = prompt(`Enter new fuel burn (GPH) for ${planeKey}:`, plane.gph);
+    if (newGph !== null && newGph.trim() !== "") {
+      plane.gph = parseFloat(newGph);
+    }
+
+    alert(
+      `Updated ${planeKey}:\n` +
+      `• Rate: $${plane.rate.toFixed(2)} /hr\n` +
+      `• Speed: ${plane.speed.toFixed(1)} kt\n` +
+      `• Fuel Burn: ${plane.gph.toFixed(1)} gph`
+    );
+  }
 
   /*****************************************************
    * Compute the MINIMUM Hobbs hours based on block time
@@ -185,6 +218,7 @@
     const distanceNM          = parseFloat(document.getElementById("distance").value)      || 0;
     const reservationHrs      = parseFloat(document.getElementById("reservationHrs").value)|| 0;
     const selectedPlane       = document.getElementById("planeType").value;
+
     const usableFuel          = parseFloat(document.getElementById("usableFuel").value)    || 0;
     const fuelStopTime        = parseFloat(document.getElementById("fuelStopTime").value)  || 0;
     const extraHobbsPerStop   = parseFloat(document.getElementById("extraHobbsPerStop").value) || 0;
@@ -199,8 +233,8 @@
 
     // 3. Lookup plane data
     const plane  = planes[selectedPlane];
-    const rate   = plane.rate;    // $/hr
-    const speed  = plane.speed;   // knots
+    const rate   = plane.rate;    
+    const speed  = plane.speed;   
     const gph    = plane.gph;
 
     // 4. GA flight time for round trip (ignoring stops at first)
@@ -214,7 +248,7 @@
     // 6. Fuel stops needed
     const fuelStops = getFuelStopsNeeded(rawGaFlightTime, flightEndurance);
 
-    // 7. Billable flight time includes extra 0.5 hrs (default) per fuel stop
+    // 7. Billable flight time includes extra run-up/takeoff time
     let billableFlightTime = rawGaFlightTime + (fuelStops * extraHobbsPerStop);
 
     // 8. Minimum Hobbs check
@@ -225,8 +259,6 @@
     let gaCost = billableHours * rate;
 
     // 10. Add FBO fees
-    //     - Fuel stop fees * number of fuel stops
-    //     - Destination FBO fee (once)
     const totalFboFees = (fuelStops * fboFeePerFuelStop) + fboFeeDestination;
     gaCost += totalFboFees;
 
@@ -290,7 +322,7 @@
           + billableFlightTime.toFixed(2) + " hrs</p>";
     html += "<p><strong>Minimum Hobbs Required:</strong> " + minHobbs.toFixed(2) + " hrs</p>";
     html += "<p><strong>Final Billable GA Hours:</strong> " + billableHours.toFixed(2) + "</p>";
-    html += "<p><strong>Flight Endurance (excluding 1hr reserve):</strong> " 
+    html += "<p><strong>Flight Endurance (excl. 1hr reserve):</strong> " 
           + flightEndurance.toFixed(2) + " hrs</p>";
     html += "<p><strong>FBO Fees:</strong> $" + totalFboFees.toFixed(0) + " total</p>";
 
