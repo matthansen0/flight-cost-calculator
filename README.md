@@ -48,7 +48,7 @@ This project is a single-page **HTML + JavaScript** tool that compares the **cos
 ## Usage
 
 1. **Input Basic Info**
-   - # of Passengers
+   - Number of Passengers
    - Airline Ticket Price
    - Trip Distance (one-way, in nautical miles)
    - Reservation Length (total hours from check-out to check-in, affecting min Hobbs)
