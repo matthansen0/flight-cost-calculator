@@ -9,7 +9,7 @@ This project is a single-page **HTML + JavaScript** tool that compares the **cos
 
 - **Multiple Airplane Profiles** (built-in or user-created)
 - **Customizable Aircraft Data** (wet rate, cruise speed, fuel burn)
-- **Iterative Fuel Stops Calculation** (3 gallons used per additional takeoff/climb)
+- **Per-Leg Fuel Stops Calculation** (3 gallons used per additional takeoff/climb)
 - **Minimum Hobbs (Overnight Rental) Logic** (fully customizable)
 - **FBO Fees, Overhead Times, and Airline Costs/Times** comparisons
 - **Modal Pop-ups** to edit plane data, add new planes, or adjust the minimum Hobbs rules
@@ -24,7 +24,8 @@ This project is a single-page **HTML + JavaScript** tool that compares the **cos
    - **Customize** existing airplane data on-the-fly  
 
 2. **Fuel & Stop Calculations**
-   - **Iterative** approach to factor in an extra 3 gallons burned per fuel stop (for run-up, taxi, climb)
+   - Stops are computed **per leg** (a refuel at the destination is assumed), then doubled for the round trip
+   - Each stop burns an extra 3 gallons for run-up, taxi, and climb, which shrinks the remaining endurance
    - Subtract **1 hour of reserve** from total usable fuel to ensure safe landing fuel
 
 3. **Minimum Hobbs Logic**
@@ -34,9 +35,10 @@ This project is a single-page **HTML + JavaScript** tool that compares the **cos
 4. **Cost Comparison**
    - **Airline**: Number of passengers × ticket cost, plus overhead time for check-in/security
    - **GA**: (billable flight hours × wet rate) + FBO fees + overhead times (preflight, fueling stops, etc.)
+   - GA cost is per airplane, so a per-person figure is also shown for a fair comparison
 
 5. **Time Comparison**
-   - **Door-to-door** GA time: flight time + overhead (fuel stops, pre/post-flight)  
+   - **Door-to-door** GA time: flight time + extra Hobbs per stop + ground time at stops + pre/postflight  
    - **Door-to-door** airline time: in-flight + overhead (arriving early, security lines)
 
 6. **Flexible HTML & JavaScript**

@@ -365,44 +365,61 @@
     const newBaseMin   = parseFloat(document.getElementById("modalBaseMin").value);
     const newExtraBlk  = parseFloat(document.getElementById("modalExtraPerBlock").value);
 
-    if (!isNaN(newBlockSize))  blockSize       = newBlockSize;
-    if (!isNaN(newBaseMin))    baseMinHours    = newBaseMin;
-    if (!isNaN(newExtraBlk))   extraHoursBlock = newExtraBlk;
+    if (isNaN(newBlockSize) || newBlockSize <= 0) {
+      alert("Block Size must be greater than 0.");
+      return;
+    }
+    if (isNaN(newBaseMin) || newBaseMin < 0 || isNaN(newExtraBlk) || newExtraBlk < 0) {
+      alert("Base Min Hours and Additional Hours per block must be 0 or greater.");
+      return;
+    }
+
+    blockSize       = newBlockSize;
+    baseMinHours    = newBaseMin;
+    extraHoursBlock = newExtraBlk;
 
     closeMinHobbsModal();
   }
 
   /******************************************************
    * 6) Compute min Hobbs hours using user-defined logic
+   *    1 block => 0 hrs, 2 blocks => baseMinHours,
+   *    each block beyond that => +extraHoursBlock
    ******************************************************/
   function getMinHobbsHours(totalHours) {
-    // e.g. if totalHours <= blockSize => 0
     if (totalHours <= blockSize) return 0;
-
-    let hrsRemaining = totalHours - blockSize;
-    let minHours = baseMinHours;  // after first block
-    while (hrsRemaining > blockSize) {
-      hrsRemaining -= blockSize;
-      minHours += extraHoursBlock; 
-    }
-    return minHours;
+    const blocks = Math.ceil(totalHours / blockSize);
+    return baseMinHours + (blocks - 2) * extraHoursBlock;
   }
 
   /******************************************************
-   * 7) # of stops ignoring climb usage
+   * 7) Fuel stops needed for a single leg.
+   *    Each stop costs CLIMB_GALS_PER_STOP of usable fuel,
+   *    so endurance shrinks as stops are added. Walk the
+   *    stop count upward until the leg fits, or return null
+   *    if the plane can never make it.
    ******************************************************/
-  function getFuelStopsNeeded(totalFlightTime, flightEndurance) {
-    if (totalFlightTime <= flightEndurance) {
-      return 0;
+  function getFuelStopsForLeg(legFlightTime, usableFuel, gph) {
+    const reserveGallons = gph * 1;
+    for (let stops = 0; ; stops++) {
+      const effectiveUsable = usableFuel - reserveGallons - (CLIMB_GALS_PER_STOP * stops);
+      if (effectiveUsable <= 0) return null;
+      const endurance = effectiveUsable / gph;
+      if (legFlightTime <= endurance * (stops + 1)) {
+        return { stops, endurance };
+      }
     }
-    const ratio = totalFlightTime / flightEndurance;
-    return Math.ceil(ratio) - 1;
   }
 
   /******************************************************
    * 8) Main "Calculate" function
-   *    Iterative approach for 3 gal/stop
    ******************************************************/
+  function escapeHtml(str) {
+    return String(str).replace(/[&<>"']/g, ch => ({
+      "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;"
+    }[ch]));
+  }
+
   function calculateCosts() {
     // Grab user inputs
     const numPassengers     = parseFloat(document.getElementById("numPassengers").value) || 0;
@@ -433,33 +450,29 @@
     const speed = plane.speed;
     const gph = plane.gph;
 
-    // Round-trip flight time (no stops)
-    const rawGaFlightTime = 2 * (distanceNM / speed);
-
-    // Start with 1-hr reserve
-    const reserveGallons = gph * 1;  
-
-    // Iterative approach to factor 3 gal used per stop
-    let bestGuessStops = 0;
-    let prevStops = -1;
-    let iteration = 0;
-    const MAX_ITER = 12;
-
-    while (bestGuessStops !== prevStops && iteration < MAX_ITER) {
-      iteration++;
-      prevStops = bestGuessStops;
-      const totalClimbGals = CLIMB_GALS_PER_STOP * bestGuessStops;
-      const effectiveUsable = Math.max(0, usableFuel - reserveGallons - totalClimbGals);
-      const flightEndurance = effectiveUsable / gph;
-
-      bestGuessStops = getFuelStopsNeeded(rawGaFlightTime, flightEndurance);
+    if (!(speed > 0) || !(gph > 0)) {
+      alert("Cruise speed and fuel burn must be greater than 0. Edit the plane data and try again.");
+      return;
     }
 
-    const fuelStops = bestGuessStops;
-    // Final flightEndurance
-    const finalClimbGals = CLIMB_GALS_PER_STOP * fuelStops;
-    const finalUsable = Math.max(0, usableFuel - reserveGallons - finalClimbGals);
-    const finalFlightEndurance = finalUsable / gph;
+    // Fuel stops are per leg: you refuel at the destination.
+    const legFlightTime = distanceNM / speed;
+    const rawGaFlightTime = 2 * legFlightTime;
+
+    const leg = getFuelStopsForLeg(legFlightTime, usableFuel, gph);
+    if (!leg) {
+      const resultsDiv = document.getElementById("results");
+      resultsDiv.innerHTML = "<h2>Results</h2><p><strong>Not enough usable fuel.</strong> "
+        + usableFuel.toFixed(1) + " gal does not cover the 1-hour reserve ("
+        + gph.toFixed(1) + " gal) plus " + CLIMB_GALS_PER_STOP
+        + " gal per fuel stop, so this trip can't be flown in the "
+        + escapeHtml(selectedPlane) + ".</p>";
+      resultsDiv.style.display = "block";
+      return;
+    }
+
+    const fuelStops = leg.stops * 2;
+    const finalFlightEndurance = leg.endurance;
 
     // Billable flight time
     let billableFlightTime = rawGaFlightTime + (fuelStops * extraHobbsPerStop);
@@ -473,8 +486,8 @@
     const totalFboFees = (fuelStops * fboFeePerFuelStop) + fboFeeDestination;
     gaCost += totalFboFees;
 
-    // GA travel time
-    const actualGaTravelTime = rawGaFlightTime + (fuelStops * fuelStopTime) + gaOverhead;
+    // GA travel time (extra Hobbs per stop is airborne time, so it counts here too)
+    const actualGaTravelTime = billableFlightTime + (fuelStops * fuelStopTime) + gaOverhead;
 
     // Airline travel time
     const totalAirlineTime = airlineFlightTime + airlineOverhead;
@@ -484,7 +497,11 @@
 
     // Cost comparison
     html += "<p><strong>Airline Cost:</strong> $" + totalAirlineCost.toFixed(0) + "</p>";
-    html += "<p><strong>GA Cost (" + selectedPlane + "):</strong> $" + gaCost.toFixed(0) + "</p>";
+    html += "<p><strong>GA Cost (" + escapeHtml(selectedPlane) + "):</strong> $" + gaCost.toFixed(0) + "</p>";
+    if (numPassengers > 0) {
+      html += "<p><em>GA cost is per airplane: $" + (gaCost / numPassengers).toFixed(0)
+            + " per person across " + numPassengers + " aboard.</em></p>";
+    }
     if (gaCost < totalAirlineCost) {
       html += "<p>You <span>save money</span> flying yourself (in pure dollar terms).</p>";
     } else if (gaCost > totalAirlineCost) {
@@ -500,9 +517,11 @@
           + actualGaTravelTime.toFixed(1) + " hrs</p>";
     html += "<ul>";
     html += "<li><strong>Raw flight time:</strong> " + rawGaFlightTime.toFixed(2) + " hrs</li>";
-    html += "<li><strong>Fuel stops:</strong> " + fuelStops + "</li>";
+    html += "<li><strong>Fuel stops:</strong> " + fuelStops + " (" + leg.stops + " per leg)</li>";
     html += "<li><strong>Fuel stop overhead:</strong> " + (fuelStops * fuelStopTime).toFixed(1) 
              + " hrs total (" + fuelStopTime + " hrs each)</li>";
+    html += "<li><strong>Extra airborne time for stops:</strong> " 
+             + (fuelStops * extraHobbsPerStop).toFixed(1) + " hrs total</li>";
     html += "<li><strong>GA overhead:</strong> " + gaOverhead.toFixed(1) + " hrs</li>";
     html += "</ul>";
 
@@ -530,10 +549,11 @@
           + minHobbs.toFixed(2) + " hrs</p>";
     html += "<p><strong>Final Billable GA Hours:</strong> " 
           + billableHours.toFixed(2) + "</p>";
-    html += "<p><strong>Flight Endurance (excl. 1hr reserve & climb usage):</strong> " 
+    html += "<p><strong>Flight Endurance per leg (excl. 1hr reserve &amp; climb usage):</strong> " 
           + finalFlightEndurance.toFixed(2) + " hrs</p>";
     html += "<p><strong>FBO Fees:</strong> $" + totalFboFees.toFixed(0) + " total</p>";
-    html += "<p><em>*3 gal/stop used for taxi + run-up + climb factored in iteratively.</em></p>";
+    html += "<p><em>*Fuel stops are counted per leg (refuel assumed at the destination), with "
+          + CLIMB_GALS_PER_STOP + " gal/stop for taxi + run-up + climb.</em></p>";
     html += `<p><em>*Min Hobbs logic: blockSize=${blockSize}, baseMin=${baseMinHours}, extra/block=${extraHoursBlock}</em></p>`;
 
     const resultsDiv = document.getElementById("results");
